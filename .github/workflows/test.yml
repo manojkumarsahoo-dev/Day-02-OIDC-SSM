@@ -1,4 +1,4 @@
-name: Test AWS OIDC and SSM
+name: Test AWS OIDC
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  verify-oidc-and-ssm:
+  verify-oidc:
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS Credentials via OIDC
@@ -19,16 +19,5 @@ jobs:
           role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
           aws-region: us-east-1
 
-      - name: 1. Verify AWS Identity (OIDC Check)
+      - name: Verify AWS Identity
         run: aws sts get-caller-identity
-
-      - name: 2. Fetch Parameter from AWS SSM (Permission Check)
-        run: |
-          PARAM_NAME="/day02/oidc-test" # Change this to your exact SSM parameter name if different
-          if PARAM_VALUE=$(aws ssm get-parameter --region us-east-1 --name "$PARAM_NAME" --query "Parameter.Value" --output text 2>/dev/null); then
-            echo "Retrieved SSM Parameter ($PARAM_NAME): $PARAM_VALUE"
-          else
-            echo "Parameter '$PARAM_NAME' not found in us-east-1. Available parameters:"
-            aws ssm describe-parameters --region us-east-1 --query "Parameters[].Name" --output table
-            exit 1
-          fi
