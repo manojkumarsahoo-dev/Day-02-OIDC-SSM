@@ -1,0 +1,48 @@
+name: Create & Import SSH Key via OIDC
+
+on:
+  workflow_dispatch:
+    inputs:
+      key_name:
+        description: "AWS EC2 Key Pair name"
+        required: true
+        default: "github-bastion-key"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  create-ssh-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
+          aws-region: ap-south-1
+
+      - name: Generate ED25519 SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -C "github-actions-${{ github.run_id }}" -f ~/.ssh/id_ed25519 -N ""
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 644 ~/.ssh/id_ed25519.pub
+
+      - name: Import public key into AWS EC2
+        run: |
+          aws ec2 import-key-pair \
+            --key-name "${{ inputs.key_name }}" \
+            --public-key-material fileb://~/.ssh/id_ed25519.pub
+
+      - name: Store private key securely in AWS SSM Parameter Store (SecureString)
+        run: |
+          aws ssm put-parameter \
+            --name "/ssh/${{ inputs.key_name }}/private_key" \
+            --value "file://~/.ssh/id_ed25519" \
+            --type "SecureString" \
+            --overwrite
+
+      - name: Verify EC2 key pair
+        run: |
+          aws ec2 describe-key-pairs --key-names "${{ inputs.key_name }}"
