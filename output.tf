@@ -1,4 +1,3 @@
-
 output "bastion_public_ip" {
   description = "Public EC2 IP address"
   value       = aws_instance.public-ec2.public_ip
