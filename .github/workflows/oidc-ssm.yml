@@ -1,0 +1,51 @@
+name: 02B - OIDC + SSM Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-oidc-ssm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Python app
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
+          aws-region: ap-south-1
+
+      - name: Deploy Python app via SSM Run Command
+        run: |
+          tar -czf /tmp/app.tar.gz --exclude='.git' --exclude='.github' .
+          B64_APP=$(base64 -w 0 /tmp/app.tar.gz)
+
+          COMMAND_ID=$(aws ssm send-command \
+            --targets "Key=InstanceIds,Values=${{ secrets.PRIVATE_EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              'mkdir -p /opt/python-app',
+              'echo \"${B64_APP}\" | base64 -d > /tmp/app.tar.gz',
+              'tar -xzf /tmp/app.tar.gz -C /opt/python-app',
+              'cd /opt/python-app && pip3 install --break-system-packages -r requirements.txt',
+              'systemctl restart python-app.service'
+            ]" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.PRIVATE_EC2_INSTANCE_ID }}"
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.PRIVATE_EC2_INSTANCE_ID }}" \
+            --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+            --output json
