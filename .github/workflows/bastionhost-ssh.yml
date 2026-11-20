@@ -1,5 +1,5 @@
 
-name: 02A - OIDC + Bastion SSH Tunnel Deploy
+name: 02A - OIDC + Public EC2 SSH Tunnel Deploy
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-oidc-bastion-ssh:
+  deploy-oidc-public-ec2:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,25 +24,25 @@ jobs:
           role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
           aws-region: us-east-1
 
-      # 3. Validate GitHub secrets
+      # 3. Validate deployment configuration
       - name: Validate deployment configuration
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
-          PRIVATE_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
+          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
-          if [ -z "$BASTION_IP" ]; then
-            echo "ERROR: BASTION_PUBLIC_IP secret is missing"
+          if [ -z "$PUBLIC_EC2_IP" ]; then
+            echo "ERROR: PUBLIC_EC2_PUBLIC_IP secret is missing"
             exit 1
           fi
 
-          if [ -z "$PRIVATE_IP" ]; then
+          if [ -z "$PRIVATE_EC2_IP" ]; then
             echo "ERROR: PRIVATE_EC2_PRIVATE_IP secret is missing"
             exit 1
           fi
 
           echo "Deployment configuration verified"
 
-      # 4. Retrieve private SSH key from SSM
+      # 4. Retrieve SSH private key from SSM
       - name: Retrieve SSH private key
         run: |
           mkdir -p ~/.ssh
@@ -58,56 +58,56 @@ jobs:
       # 5. Configure SSH known hosts
       - name: Configure SSH known hosts
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
         run: |
-          ssh-keyscan -H "$BASTION_IP" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$PUBLIC_EC2_IP" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # 6. Verify Bastion SSH connection
-      - name: Test Bastion connection
+      # 6. Test public EC2 SSH connection
+      - name: Test public EC2 connection
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
-            ubuntu@"$BASTION_IP" \
-            "echo Bastion SSH connection successful"
+            ubuntu@"$PUBLIC_EC2_IP" \
+            "echo Public EC2 SSH connection successful"
 
-      # 7. Create application directory on private EC2
+      # 7. Prepare private EC2
       - name: Prepare private EC2
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
-          PRIVATE_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
+          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
-            -J ubuntu@"$BASTION_IP" \
-            ubuntu@"$PRIVATE_IP" \
+            -J ubuntu@"$PUBLIC_EC2_IP" \
+            ubuntu@"$PRIVATE_EC2_IP" \
             "sudo mkdir -p /opt/python-app &&
              sudo chown ubuntu:ubuntu /opt/python-app"
 
-      # 8. Copy Python application through Bastion
+      # 8. Copy Python application through public EC2
       - name: Copy Python application
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
-          PRIVATE_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
+          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           scp -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
-            -o ProxyJump=ubuntu@"$BASTION_IP" \
+            -o ProxyJump=ubuntu@"$PUBLIC_EC2_IP" \
             -r ./python-app/* \
-            ubuntu@"$PRIVATE_IP":/opt/python-app/
+            ubuntu@"$PRIVATE_EC2_IP":/opt/python-app/
 
       # 9. Install dependencies and restart application
       - name: Deploy Python application
         env:
-          BASTION_IP: ${{ secrets.BASTION_PUBLIC_IP }}
-          PRIVATE_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
+          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
+          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
-            -J ubuntu@"$BASTION_IP" \
-            ubuntu@"$PRIVATE_IP" "
+            -J ubuntu@"$PUBLIC_EC2_IP" \
+            ubuntu@"$PRIVATE_EC2_IP" "
               cd /opt/python-app &&
               pip3 install --break-system-packages -r requirements.txt &&
               sudo systemctl restart python-app.service &&
