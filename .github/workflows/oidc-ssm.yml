@@ -1,8 +1,8 @@
 name: 02B - OIDC + SSM Deploy
 
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   workflow_dispatch:
 
 permissions:
