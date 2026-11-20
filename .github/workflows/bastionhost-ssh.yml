@@ -24,25 +24,28 @@ jobs:
           role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
           aws-region: us-east-1
 
-      # 3. Validate deployment configuration
-      - name: Validate deployment configuration
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
-          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
+      # 3. Initialize existing Terraform backend
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      # 4. Retrieve existing EC2 IPs from Terraform outputs
+      - name: Get EC2 IP addresses
+        id: ec2
         run: |
-          if [ -z "$PUBLIC_EC2_IP" ]; then
-            echo "ERROR: PUBLIC_EC2_PUBLIC_IP secret is missing"
+          PUBLIC_EC2_IP=$(terraform output -raw public_ec2_public_ip)
+          PRIVATE_EC2_IP=$(terraform output -raw private_ec2_private_ip)
+
+          if [ -z "$PUBLIC_EC2_IP" ] || [ -z "$PRIVATE_EC2_IP" ]; then
+            echo "ERROR: Terraform EC2 outputs are empty"
             exit 1
           fi
 
-          if [ -z "$PRIVATE_EC2_IP" ]; then
-            echo "ERROR: PRIVATE_EC2_PRIVATE_IP secret is missing"
-            exit 1
-          fi
+          echo "PUBLIC_EC2_IP=$PUBLIC_EC2_IP" >> "$GITHUB_ENV"
+          echo "PRIVATE_EC2_IP=$PRIVATE_EC2_IP" >> "$GITHUB_ENV"
 
-          echo "Deployment configuration verified"
+          echo "EC2 IP addresses retrieved successfully"
 
-      # 4. Retrieve SSH private key from SSM
+      # 5. Retrieve SSH private key from SSM
       - name: Retrieve SSH private key
         run: |
           mkdir -p ~/.ssh
@@ -55,29 +58,22 @@ jobs:
 
           chmod 600 ~/.ssh/id_ed25519
 
-      # 5. Configure SSH known hosts
+      # 6. Configure SSH known hosts
       - name: Configure SSH known hosts
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
         run: |
           ssh-keyscan -H "$PUBLIC_EC2_IP" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # 6. Test public EC2 SSH connection
+      # 7. Test public EC2 SSH connection
       - name: Test public EC2 connection
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
             ubuntu@"$PUBLIC_EC2_IP" \
             "echo Public EC2 SSH connection successful"
 
-      # 7. Prepare private EC2
+      # 8. Prepare private EC2
       - name: Prepare private EC2
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
-          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
@@ -86,11 +82,8 @@ jobs:
             "sudo mkdir -p /opt/python-app &&
              sudo chown ubuntu:ubuntu /opt/python-app"
 
-      # 8. Copy Python application through public EC2
+      # 9. Copy Python application through public EC2
       - name: Copy Python application
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
-          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           scp -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
@@ -98,11 +91,8 @@ jobs:
             -r ./python-app/* \
             ubuntu@"$PRIVATE_EC2_IP":/opt/python-app/
 
-      # 9. Install dependencies and restart application
+      # 10. Install dependencies and restart application
       - name: Deploy Python application
-        env:
-          PUBLIC_EC2_IP: ${{ secrets.PUBLIC_EC2_PUBLIC_IP }}
-          PRIVATE_EC2_IP: ${{ secrets.PRIVATE_EC2_PRIVATE_IP }}
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
@@ -114,7 +104,7 @@ jobs:
               sudo systemctl status python-app.service --no-pager
             "
 
-      # 10. Cleanup SSH private key
+      # 11. Cleanup SSH private key
       - name: Cleanup SSH keys
         if: always()
         run: |
