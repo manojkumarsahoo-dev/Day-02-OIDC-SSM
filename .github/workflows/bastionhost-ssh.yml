@@ -42,29 +42,23 @@ jobs:
           echo "Checking Terraform-managed resources..."
           terraform state list
 
-      # 6. Retrieve EC2 IP addresses from Terraform outputs
+            # 3. Retrieve existing EC2 IP addresses using AWS CLI
       - name: Get EC2 IP addresses
-        id: ec2
-        shell: bash
         run: |
-          set -euo pipefail
+          PUBLIC_EC2_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=public-ec2" \
+                      "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].PublicIpAddress" \
+            --output text)
 
-          echo "Checking available Terraform outputs..."
-
-          terraform output -json > outputs.json
-
-          if ! jq -e '.public_ec2_public_ip and .private_ec2_private_ip' outputs.json > /dev/null; then
-            echo "ERROR: Required Terraform outputs are missing."
-            echo "Check output.tf and verify the existing Terraform state."
-            cat outputs.json
-            exit 1
-          fi
-
-          PUBLIC_EC2_IP=$(terraform output -raw public_ec2_public_ip)
-          PRIVATE_EC2_IP=$(terraform output -raw private_ec2_private_ip)
+          PRIVATE_EC2_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=private-ec2" \
+                      "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].PrivateIpAddress" \
+            --output text)
 
           if [ -z "$PUBLIC_EC2_IP" ] || [ -z "$PRIVATE_EC2_IP" ]; then
-            echo "ERROR: EC2 IP addresses are empty."
+            echo "ERROR: Could not find both EC2 instances"
             exit 1
           fi
 
