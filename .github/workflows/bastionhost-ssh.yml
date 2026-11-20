@@ -1,8 +1,7 @@
+
 name: 02A - OIDC + Bastion SSH Tunnel Deploy
 
 on:
-  # push:
-  #   branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,6 +11,7 @@ permissions:
 jobs:
   deploy-oidc-bastion-ssh:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Python app
         uses: actions/checkout@v4
@@ -22,30 +22,41 @@ jobs:
           role-to-assume: arn:aws:iam::822824391920:role/OIDC-role
           aws-region: us-east-1
 
-      - name: Setup SSH key for Bastion jump
+      - name: Retrieve SSH private key from SSM
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.BASTION_PUBLIC_IP }} >> ~/.ssh/known_hosts
 
-      - name: Deploy Python app through Bastion SSH tunnel
+          aws ssm get-parameter \
+            --name "/ssh/github-bastion-key/private_key" \
+            --with-decryption \
+            --query "Parameter.Value" \
+            --output text > ~/.ssh/id_ed25519
+
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Configure Bastion host
         run: |
-          ssh -i ~/.ssh/id_rsa \
-              -o StrictHostKeyChecking=no \
-              -J ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
-              ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }} "mkdir -p /opt/python-app"
+          ssh-keyscan -H "${{ secrets.BASTION_PUBLIC_IP }}" >> ~/.ssh/known_hosts
 
-          scp -i ~/.ssh/id_rsa \
-              -o StrictHostKeyChecking=no \
-              -o ProxyJump=ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
-              -r ./* ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }}:/opt/python-app/
+      - name: Deploy Python app through Bastion
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }} \
+            "sudo mkdir -p /opt/python-app && sudo chown ubuntu:ubuntu /opt/python-app"
 
-          ssh -i ~/.ssh/id_rsa \
-              -o StrictHostKeyChecking=no \
-              -J ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
-              ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }} "
-                cd /opt/python-app &&
-                pip3 install --break-system-packages -r requirements.txt &&
-                sudo systemctl restart python-app.service
-              "
+          scp -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            -o ProxyJump=ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
+            -r ./python-app/* \
+            ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }}:/opt/python-app/
+
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.BASTION_PUBLIC_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_PRIVATE_IP }} "
+              cd /opt/python-app &&
+              pip3 install --break-system-packages -r requirements.txt &&
+              sudo systemctl restart python-app.service
+            "
