@@ -24,5 +24,11 @@ jobs:
 
       - name: 2. Fetch Parameter from AWS SSM (Permission Check)
         run: |
-          PARAM_VALUE=$(aws ssm get-parameter --region us-east-1 --name "/day02/oidc-test" --query "Parameter.Value" --output text)
-          echo "Retrieved SSM Parameter: $PARAM_VALUE"
+          PARAM_NAME="/day02/oidc-test" # Change this to your exact SSM parameter name if different
+          if PARAM_VALUE=$(aws ssm get-parameter --region us-east-1 --name "$PARAM_NAME" --query "Parameter.Value" --output text 2>/dev/null); then
+            echo "Retrieved SSM Parameter ($PARAM_NAME): $PARAM_VALUE"
+          else
+            echo "Parameter '$PARAM_NAME' not found in us-east-1. Available parameters:"
+            aws ssm describe-parameters --region us-east-1 --query "Parameters[].Name" --output table
+            exit 1
+          fi
