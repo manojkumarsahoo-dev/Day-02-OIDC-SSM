@@ -223,7 +223,7 @@ resource "aws_instance" "public" {
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.public_sg.id]
   associate_public_ip_address = true
-  iam_instance_profile       = aws_iam_instance_profile.ec2_profile.name
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
 
   user_data = <<-EOF
     #!/bin/bash
@@ -241,32 +241,14 @@ resource "aws_instance" "public" {
 #---------------- Private EC2 Instance ----------------
 
 resource "aws_instance" "private" {
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t3.micro"
-  subnet_id              = aws_subnet.private.id
-  vpc_security_group_ids = [aws_security_group.private_sg.id]
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  subnet_id                   = aws_subnet.private.id
+  vpc_security_group_ids      = [aws_security_group.private_sg.id]
   associate_public_ip_address = false
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
 
   tags = {
     Name = "private-ec2"
   }
-}
-
-#---------------- Outputs ----------------
-
-output "public_instance_ip" {
-  value = aws_instance.public.public_ip
-}
-
-output "private_instance_ip" {
-  value = aws_instance.private.private_ip
-}
-
-output "public_website" {
-  value = "http://${aws_instance.public.public_ip}"
-}
-
-output "vpc_id" {
-  value = aws_vpc.main.id
 }
